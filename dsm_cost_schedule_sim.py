@@ -13,9 +13,6 @@ from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 from typing import List, Tuple
 
-LAUNCHER_SCRIPT_VERSION = 4
-GUI_LAYOUT_VERSION = "DSM-20x20"
-
 
 @dataclass
 class SimulationConfig:
@@ -256,125 +253,36 @@ def create_windows_launcher(desktop_dir: Path, project_dir: Path) -> Path:
     desktop_dir.mkdir(parents=True, exist_ok=True)
     launcher_path = desktop_dir / "DSM_Cost_Schedule_Simulator.bat"
 
-    project_dir = project_dir.resolve()
-    escaped_project_dir = str(project_dir).replace("\\", "\\\\")
-    launcher_text = f"""@echo off
-setlocal
-REM DSM_LAUNCHER_VERSION=5
-set "DIR={escaped_project_dir}"
-if not exist "%DIR%\dsm_cost_schedule_sim.py" (
-  echo dsm_cost_schedule_sim.py not found in: %DIR%
-  pause
-  exit /b 1
-)
-cd /d "%DIR%"
-echo Launching from: %DIR%
-where py >nul 2>&1
-if %errorlevel%==0 (
-  py -3 dsm_cost_schedule_sim.py --gui
-) else (
-  where python >nul 2>&1
-  if %errorlevel%==0 (
-    python dsm_cost_schedule_sim.py --gui
-  ) else (
-    echo Python is not installed or PATH is not set.
-    pause
-    exit /b 1
-  )
-)
-if errorlevel 1 (
-  echo.
-  echo Launch failed. Run in PowerShell: python "%DIR%\dsm_cost_schedule_sim.py" --gui
-  pause
-)
-endlocal
-"""
-    launcher_path.write_text(launcher_text, encoding="ascii")
+    project_dir_win = str(project_dir).replace("/", "\\")
+    launcher_text = (
+        "@echo off\n"
+        "setlocal\n"
+        f'cd /d "{project_dir_win}"\n'
+        "python dsm_cost_schedule_sim.py --gui\n"
+        "if errorlevel 1 (\n"
+        "  echo.\n"
+        "  echo 起動に失敗しました。Pythonのインストールとパス設定を確認してください。\n"
+        "  pause\n"
+        ")\n"
+        "endlocal\n"
+    )
+    launcher_path.write_text(launcher_text, encoding="utf-8")
     return launcher_path
-
-
-def create_windows_start_files(project_dir: Path) -> tuple[Path, Path]:
-    """Windows向けのワンクリック起動ファイル2点を作成する。"""
-    project_dir = project_dir.resolve()
-    ps1_path = project_dir / "start_latest_windows.ps1"
-    bat_path = project_dir / "START_LATEST_DSM.bat"
-
-    escaped_project_dir = str(project_dir).replace("\\", "\\\\")
-    ps1_text = f'''$ErrorActionPreference = "Stop"
-
-$ProjectDir = "{escaped_project_dir}"
-Set-Location $ProjectDir
-
-if ((Test-Path (Join-Path $ProjectDir '.git')) -and (Get-Command git -ErrorAction SilentlyContinue)) {{
-  Write-Host "Updating from Git..."
-  try {{
-    git pull --ff-only | Out-Host
-  }} catch {{
-    Write-Host "Git update failed. Continue with local files."
-  }}
-}}
-
-if (-not (Test-Path (Join-Path $ProjectDir 'dsm_cost_schedule_sim.py'))) {{
-  Write-Host "dsm_cost_schedule_sim.py が見つかりません: $ProjectDir"
-  pause
-  exit 1
-}}
-
-Write-Host "Launching latest GUI from: $ProjectDir"
-
-$ok = $false
-try {{
-  & py -3 (Join-Path $ProjectDir 'dsm_cost_schedule_sim.py') --gui
-  if ($LASTEXITCODE -eq 0) {{ $ok = $true }}
-}} catch {{}}
-
-if (-not $ok) {{
-  & python (Join-Path $ProjectDir 'dsm_cost_schedule_sim.py') --gui
-  if ($LASTEXITCODE -eq 0) {{ $ok = $true }}
-}}
-
-if (-not $ok) {{
-  Write-Host "Launch failed. Run in PowerShell: python dsm_cost_schedule_sim.py --gui"
-  pause
-  exit 1
-}}
-'''
-
-    bat_text = """@echo off
-setlocal
-cd /d "%~dp0"
-powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0start_latest_windows.ps1"
-if errorlevel 1 (
-  echo.
-  echo Failed to refresh/start launcher.
-  pause
-)
-endlocal
-"""
-
-    ps1_path.write_text(ps1_text, encoding="utf-8")
-    bat_path.write_text(bat_text, encoding="ascii")
-    return ps1_path, bat_path
-
 
 
 class SimulatorGUI:
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
-        self.root.title(f"DSM Cost/Schedule Simulator ({GUI_LAYOUT_VERSION})")
+        self.root.title("DSM Cost/Schedule Simulator")
         self.root.geometry("980x740")
 
-        self.num_tasks_var = tk.IntVar(value=20)
+        self.num_tasks_var = tk.IntVar(value=5)
         self.num_trials_var = tk.IntVar(value=1000)
         self.max_iter_var = tk.IntVar(value=50)
         self.seed_var = tk.IntVar(value=42)
 
         self.task_entries: List[dict[str, tk.Entry]] = []
-        self.dsm_entries: List[List[tk.Widget]] = []
-        self.col_header_labels: List[ttk.Label] = []
-        self.row_header_labels: List[ttk.Label] = []
-        self.visual_canvas: tk.Canvas | None = None
-        self.visual_order: List[int] = []
+        self.dsm_entries: List[List[tk.Entry]] = []
 
         self._build_ui()
         self._rebuild_tables()
@@ -385,8 +293,6 @@ class SimulatorGUI:
 
         ttk.Label(top, text="タスク数").pack(side="left")
         ttk.Spinbox(top, from_=2, to=30, textvariable=self.num_tasks_var, width=5).pack(side="left", padx=4)
-        ttk.Button(top, text="－", width=3, command=self._decrease_tasks).pack(side="left", padx=(4, 1))
-        ttk.Button(top, text="＋", width=3, command=self._increase_tasks).pack(side="left", padx=(1, 6))
         ttk.Button(top, text="表を再作成", command=self._rebuild_tables).pack(side="left", padx=6)
 
         ttk.Label(top, text="試行回数").pack(side="left", padx=(20, 0))
@@ -414,33 +320,10 @@ class SimulatorGUI:
         for w in frame.winfo_children():
             w.destroy()
 
-    def _increase_tasks(self) -> None:
-        self.num_tasks_var.set(min(int(self.num_tasks_var.get()) + 1, 30))
-        self._rebuild_tables()
-
-    def _decrease_tasks(self) -> None:
-        self.num_tasks_var.set(max(int(self.num_tasks_var.get()) - 1, 2))
-        self._rebuild_tables()
-
-    @staticmethod
-    def _vertical_text(text: str) -> str:
-        return "\n".join(list(text)) if text else ""
-
-    def _update_column_headers(self) -> None:
-        for i, lbl in enumerate(self.col_header_labels):
-            name = self.task_entries[i]["task_name"].get().strip() if i < len(self.task_entries) else ""
-            lbl.configure(text=self._vertical_text(name or str(i + 1)))
-        for i, lbl in enumerate(self.row_header_labels):
-            name = self.task_entries[i]["task_name"].get().strip() if i < len(self.task_entries) else ""
-            lbl.configure(text=name or str(i + 1))
-        self._refresh_dsm_visualization()
-
     def _rebuild_tables(self) -> None:
         n = int(self.num_tasks_var.get())
         self.task_entries = []
         self.dsm_entries = []
-        self.col_header_labels = []
-        self.row_header_labels = []
         self._clear_frame(self.tasks_frame)
         self._clear_frame(self.dsm_frame)
 
@@ -450,135 +333,25 @@ class SimulatorGUI:
 
         for r in range(n):
             row_entries: dict[str, tk.Entry] = {}
-            defaults = ["", "", "", "", ""]
+            defaults = [f"Task{r+1}", "", "", "", ""]
             for c, key in enumerate(headers):
                 e = ttk.Entry(self.tasks_frame, width=14)
                 e.grid(row=r + 1, column=c, padx=2, pady=1)
                 e.insert(0, defaults[c])
-                if key == "task_name":
-                    e.bind("<KeyRelease>", lambda _evt: self._update_column_headers())
                 row_entries[key] = e
             self.task_entries.append(row_entries)
 
-        dsm_pane = ttk.PanedWindow(self.dsm_frame, orient="vertical")
-        dsm_pane.pack(fill="both", expand=True)
-
-        input_frame = ttk.Frame(dsm_pane)
-        viz_outer = ttk.Labelframe(dsm_pane, text="DSM可視化")
-        dsm_pane.add(input_frame, weight=3)
-        dsm_pane.add(viz_outer, weight=2)
-
-        canvas = tk.Canvas(input_frame, borderwidth=0)
-        vscroll = ttk.Scrollbar(input_frame, orient="vertical", command=canvas.yview)
-        hscroll = ttk.Scrollbar(input_frame, orient="horizontal", command=canvas.xview)
-        canvas.configure(yscrollcommand=vscroll.set, xscrollcommand=hscroll.set)
-        vscroll.pack(side="right", fill="y")
-        hscroll.pack(side="bottom", fill="x")
-        canvas.pack(side="left", fill="both", expand=True)
-
-        grid = ttk.Frame(canvas)
-        canvas.create_window((0, 0), window=grid, anchor="nw")
-        grid.bind(
-            "<Configure>",
-            lambda _e: canvas.configure(scrollregion=canvas.bbox("all")),
-        )
-
-        ttk.Label(grid, text="DSM", width=10).grid(row=0, column=0, padx=1, pady=1)
         for c in range(n):
-            lbl = ttk.Label(grid, text=self._vertical_text(str(c + 1)), width=4, anchor="center")
-            lbl.grid(row=0, column=c + 1, padx=1, pady=1)
-            self.col_header_labels.append(lbl)
-
+            ttk.Label(self.dsm_frame, text=str(c + 1)).grid(row=0, column=c + 1, padx=1, pady=1)
         for r in range(n):
-            row_name = ttk.Label(grid, text=str(r + 1), width=14, anchor="w")
-            row_name.grid(row=r + 1, column=0, padx=1, pady=1, sticky="w")
-            self.row_header_labels.append(row_name)
-            row: List[tk.Widget] = []
+            ttk.Label(self.dsm_frame, text=str(r + 1)).grid(row=r + 1, column=0, padx=1, pady=1)
+            row = []
             for c in range(n):
-                if r == c:
-                    cell = tk.Label(grid, text="╲", width=5, bg="#d9d9d9", anchor="center")
-                    cell.grid(row=r + 1, column=c + 1, padx=1, pady=1)
-                    row.append(cell)
-                    continue
-                e = ttk.Entry(grid, width=5)
+                e = ttk.Entry(self.dsm_frame, width=5)
                 e.grid(row=r + 1, column=c + 1, padx=1, pady=1)
-                e.bind("<KeyRelease>", lambda _evt: self._refresh_dsm_visualization())
+                e.insert(0, "0.0")
                 row.append(e)
             self.dsm_entries.append(row)
-
-        viz_tools = ttk.Frame(viz_outer)
-        viz_tools.pack(fill="x")
-        ttk.Button(viz_tools, text="DSM可視化を更新", command=self._refresh_dsm_visualization).pack(side="left", padx=4, pady=2)
-
-        viz_canvas_frame = ttk.Frame(viz_outer)
-        viz_canvas_frame.pack(fill="both", expand=True)
-        self.visual_canvas = tk.Canvas(viz_canvas_frame, borderwidth=0, bg="white", height=260)
-        vsv = ttk.Scrollbar(viz_canvas_frame, orient="vertical", command=self.visual_canvas.yview)
-        hsv = ttk.Scrollbar(viz_canvas_frame, orient="horizontal", command=self.visual_canvas.xview)
-        self.visual_canvas.configure(yscrollcommand=vsv.set, xscrollcommand=hsv.set)
-        vsv.pack(side="right", fill="y")
-        hsv.pack(side="bottom", fill="x")
-        self.visual_canvas.pack(side="left", fill="both", expand=True)
-
-        self._update_column_headers()
-        self._refresh_dsm_visualization()
-
-    def _get_display_order(self, n: int) -> List[int]:
-        """将来の行列並べ替え機能の差し込みポイント。"""
-        return list(range(n))
-
-    def _refresh_dsm_visualization(self) -> None:
-        if self.visual_canvas is None:
-            return
-        n = len(self.dsm_entries)
-        if n == 0:
-            self.visual_canvas.delete("all")
-            return
-
-        try:
-            matrix = self._collect_dsm()
-        except Exception:
-            matrix = [[0.0 for _ in range(n)] for _ in range(n)]
-
-        names = []
-        for i in range(n):
-            name = self.task_entries[i]["task_name"].get().strip() if i < len(self.task_entries) else ""
-            names.append(name or str(i + 1))
-
-        order = self._get_display_order(n)
-        self.visual_order = order
-
-        cell = 20
-        left_w = 120
-        top_h = 120
-        w = left_w + cell * n + 20
-        h = top_h + cell * n + 20
-
-        c = self.visual_canvas
-        c.delete("all")
-        c.config(scrollregion=(0, 0, w, h))
-
-        for vr, src_r in enumerate(order):
-            for vc, src_c in enumerate(order):
-                x1 = left_w + vc * cell
-                y1 = top_h + vr * cell
-                x2 = x1 + cell
-                y2 = y1 + cell
-                if src_r == src_c:
-                    fill = "#e6e6e6"
-                else:
-                    fill = "#66a3ff" if matrix[src_r][src_c] > 0 else "#ffffff"
-                c.create_rectangle(x1, y1, x2, y2, fill=fill, outline="#aaaaaa")
-
-        for vr, src_r in enumerate(order):
-            y = top_h + vr * cell + cell / 2
-            c.create_text(4, y, text=names[src_r], anchor="w", font=("TkDefaultFont", 9))
-
-        for vc, src_c in enumerate(order):
-            x = left_w + vc * cell + cell / 2
-            c.create_text(x, top_h - 4, text="\n".join(list(names[src_c])), anchor="s", font=("TkDefaultFont", 8))
-
-        c.create_text(left_w - 4, top_h - 4, text="DSM", anchor="se")
 
     def _collect_taskset(self) -> TaskSet:
         names, bc, bd, cs, ds = [], [], [], [], []
@@ -599,18 +372,11 @@ class SimulatorGUI:
         for r in range(n):
             row = []
             for c in range(n):
-                if r == c:
-                    row.append(0.0)
-                    continue
-                cell = self.dsm_entries[r][c]
-                if not isinstance(cell, ttk.Entry):
-                    row.append(0.0)
-                    continue
-                raw = cell.get().strip()
-                v = 0.0 if raw == "" else float(raw)
+                v = float(self.dsm_entries[r][c].get())
                 if not (0 <= v <= 1):
                     raise ValueError("DSMの値は0〜1で入力してください")
                 row.append(v)
+            row[r] = 0.0
             out.append(row)
         return out
 
@@ -671,15 +437,8 @@ class SimulatorGUI:
 
             for r in range(len(dsm)):
                 for c in range(len(dsm)):
-                    cell = self.dsm_entries[r][c]
-                    if not isinstance(cell, ttk.Entry):
-                        continue
-                    cell.delete(0, tk.END)
-                    if r != c:
-                        cell.insert(0, str(dsm[r][c]))
-
-            self._update_column_headers()
-            self._refresh_dsm_visualization()
+                    self.dsm_entries[r][c].delete(0, tk.END)
+                    self.dsm_entries[r][c].insert(0, str(dsm[r][c]))
 
             cfg_path = Path(tasks_path).with_name("config_template.json")
             if cfg_path.exists():
@@ -764,10 +523,7 @@ def main() -> None:
 
     if args.create_win_launcher:
         out = create_windows_launcher(args.win_desktop_dir, args.project_dir)
-        ps1_path, bat_path = create_windows_start_files(args.project_dir)
         print(f"Windows起動ファイルを作成しました: {out}")
-        print(f"ワンクリック起動(ps1): {ps1_path}")
-        print(f"ワンクリック起動(bat): {bat_path}")
         return
 
     if not args.tasks or not args.dsm:
@@ -788,3 +544,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
