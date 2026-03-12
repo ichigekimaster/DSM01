@@ -376,7 +376,6 @@ class SimulatorGUI:
         self.row_header_labels: List[ttk.Label] = []
         self.visual_canvas: tk.Canvas | None = None
         self.visual_order: List[int] = []
-        self.use_reordered_view = False
 
         self._build_ui()
         self._rebuild_tables()
@@ -455,7 +454,6 @@ class SimulatorGUI:
         self.dsm_entries = []
         self.col_header_labels = []
         self.row_header_labels = []
-        self.use_reordered_view = False
         self._clear_frame(self.tasks_frame)
         self._clear_frame(self.dsm_input_frame)
         self._clear_frame(self.dsm_visual_frame)
@@ -519,7 +517,6 @@ class SimulatorGUI:
         viz_tools = ttk.Frame(self.dsm_visual_frame)
         viz_tools.pack(fill="x")
         ttk.Button(viz_tools, text="DSM可視化を更新", command=self._refresh_dsm_visualization).pack(side="left", padx=4, pady=2)
-        ttk.Button(viz_tools, text="DSM並べ替え", command=self._reorder_dsm_visualization).pack(side="left", padx=4, pady=2)
 
         viz_canvas_frame = ttk.Frame(self.dsm_visual_frame)
         viz_canvas_frame.pack(fill="both", expand=True)
@@ -535,37 +532,14 @@ class SimulatorGUI:
         self._refresh_dsm_visualization()
 
     def _get_display_order(self, n: int) -> List[int]:
-        if self.use_reordered_view and len(self.visual_order) == n:
-            return self.visual_order
+        """将来の行列並べ替え機能の差し込みポイント。"""
         return list(range(n))
-
-    def _compute_upper_triangular_order(self, matrix: List[List[float]]) -> List[int]:
-        n = len(matrix)
-        stats = []
-        for i in range(n):
-            out_w = sum(matrix[i][j] for j in range(n) if i != j)
-            in_w = sum(matrix[j][i] for j in range(n) if i != j)
-            stats.append((i, out_w - in_w, out_w))
-        stats.sort(key=lambda x: (x[1], x[2]), reverse=True)
-        return [i for i, _net, _out in stats]
-
-    def _reorder_dsm_visualization(self) -> None:
-        n = len(self.dsm_entries)
-        if n == 0:
-            return
-        try:
-            matrix = self._collect_dsm()
-        except Exception:
-            matrix = [[0.0 for _ in range(n)] for _ in range(n)]
-        self.visual_order = self._compute_upper_triangular_order(matrix)
-        self.use_reordered_view = True
-        self._refresh_dsm_visualization()
 
     @staticmethod
     def _dsm_cell_fill(src_r: int, src_c: int, value: float) -> str:
         if src_r == src_c:
             return "#e6e6e6"
-        return "#2f80ed" if value > 0 else "#ffffff"
+        return "#66a3ff" if value > 0 else "#ffffff"
 
     def _refresh_dsm_visualization(self) -> None:
         if self.visual_canvas is None:
@@ -588,9 +562,9 @@ class SimulatorGUI:
         order = self._get_display_order(n)
         self.visual_order = order
 
-        cell = 22
-        left_w = 180
-        top_h = 90
+        cell = 20
+        left_w = 120
+        top_h = 120
         w = left_w + cell * n + 20
         h = top_h + cell * n + 20
 
@@ -609,13 +583,11 @@ class SimulatorGUI:
 
         for vr, src_r in enumerate(order):
             y = top_h + vr * cell + cell / 2
-            label = names[src_r] if len(names[src_r]) <= 24 else names[src_r][:21] + "..."
-            c.create_text(6, y, text=label, anchor="w", font=("TkDefaultFont", 9))
+            c.create_text(4, y, text=names[src_r], anchor="w", font=("TkDefaultFont", 9))
 
         for vc, src_c in enumerate(order):
             x = left_w + vc * cell + cell / 2
-            label = names[src_c] if len(names[src_c]) <= 16 else names[src_c][:13] + "..."
-            c.create_text(x, top_h - 6, text=label, angle=60, anchor="s", font=("TkDefaultFont", 8))
+            c.create_text(x, top_h - 4, text="\n".join(list(names[src_c])), anchor="s", font=("TkDefaultFont", 8))
 
         c.create_text(left_w - 4, top_h - 4, text="DSM", anchor="se")
 
