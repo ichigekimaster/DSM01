@@ -15,6 +15,7 @@ from typing import List, Tuple
 
 LAUNCHER_SCRIPT_VERSION = 4
 GUI_LAYOUT_VERSION = "DSM-20x20"
+GUI_WINDOW_TITLE = "DSM Cost/Schedule Simulator + DSM Viewer"
 
 
 @dataclass
@@ -361,7 +362,7 @@ endlocal
 class SimulatorGUI:
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
-        self.root.title(f"DSM Cost/Schedule Simulator ({GUI_LAYOUT_VERSION})")
+        self.root.title(GUI_WINDOW_TITLE)
         self.root.geometry("980x740")
 
         self.num_tasks_var = tk.IntVar(value=20)
@@ -380,35 +381,47 @@ class SimulatorGUI:
         self._rebuild_tables()
 
     def _build_ui(self) -> None:
-        top = ttk.Frame(self.root, padding=8)
-        top.pack(fill="x")
+        notebook = ttk.Notebook(self.root)
+        notebook.pack(fill="both", expand=True, padx=8, pady=8)
 
-        ttk.Label(top, text="タスク数").pack(side="left")
-        ttk.Spinbox(top, from_=2, to=30, textvariable=self.num_tasks_var, width=5).pack(side="left", padx=4)
-        ttk.Button(top, text="－", width=3, command=self._decrease_tasks).pack(side="left", padx=(4, 1))
-        ttk.Button(top, text="＋", width=3, command=self._increase_tasks).pack(side="left", padx=(1, 6))
-        ttk.Button(top, text="表を再作成", command=self._rebuild_tables).pack(side="left", padx=6)
+        self.tab_cost = ttk.Frame(notebook)
+        self.tab_dsm_input = ttk.Frame(notebook)
+        self.tab_dsm_visual = ttk.Frame(notebook)
+        notebook.add(self.tab_cost, text="コスト・スケジュール")
+        notebook.add(self.tab_dsm_input, text="DSM入力")
+        notebook.add(self.tab_dsm_visual, text="DSM可視化")
 
-        ttk.Label(top, text="試行回数").pack(side="left", padx=(20, 0))
-        ttk.Entry(top, textvariable=self.num_trials_var, width=8).pack(side="left", padx=4)
-        ttk.Label(top, text="反復上限").pack(side="left")
-        ttk.Entry(top, textvariable=self.max_iter_var, width=6).pack(side="left", padx=4)
-        ttk.Label(top, text="seed").pack(side="left")
-        ttk.Entry(top, textvariable=self.seed_var, width=8).pack(side="left", padx=4)
+        cfg = ttk.Frame(self.tab_cost, padding=8)
+        cfg.pack(fill="x")
+        ttk.Label(cfg, text="試行回数").pack(side="left")
+        ttk.Entry(cfg, textvariable=self.num_trials_var, width=8).pack(side="left", padx=4)
+        ttk.Label(cfg, text="反復上限").pack(side="left")
+        ttk.Entry(cfg, textvariable=self.max_iter_var, width=6).pack(side="left", padx=4)
+        ttk.Label(cfg, text="seed").pack(side="left")
+        ttk.Entry(cfg, textvariable=self.seed_var, width=8).pack(side="left", padx=4)
 
-        pane = ttk.PanedWindow(self.root, orient="vertical")
-        pane.pack(fill="both", expand=True, padx=8, pady=8)
+        self.tasks_frame = ttk.Labelframe(self.tab_cost, text="Tasks 入力", padding=6)
+        self.tasks_frame.pack(fill="both", expand=True, padx=8, pady=(0, 8))
 
-        self.tasks_frame = ttk.Labelframe(pane, text="Tasks 入力")
-        self.dsm_frame = ttk.Labelframe(pane, text="DSM 入力 (0〜1)")
-        pane.add(self.tasks_frame, weight=1)
-        pane.add(self.dsm_frame, weight=2)
+        cost_bottom = ttk.Frame(self.tab_cost, padding=8)
+        cost_bottom.pack(fill="x")
+        ttk.Button(cost_bottom, text="CSVへ保存", command=self.save_inputs).pack(side="left")
+        ttk.Button(cost_bottom, text="CSV読込", command=self.load_inputs).pack(side="left", padx=6)
+        ttk.Button(cost_bottom, text="シミュレーション実行", command=self.run).pack(side="right")
 
-        bottom = ttk.Frame(self.root, padding=8)
-        bottom.pack(fill="x")
-        ttk.Button(bottom, text="CSVへ保存", command=self.save_inputs).pack(side="left")
-        ttk.Button(bottom, text="CSV読込", command=self.load_inputs).pack(side="left", padx=6)
-        ttk.Button(bottom, text="シミュレーション実行", command=self.run).pack(side="right")
+        dsm_top = ttk.Frame(self.tab_dsm_input, padding=8)
+        dsm_top.pack(fill="x")
+        ttk.Label(dsm_top, text="行列サイズ").pack(side="left")
+        ttk.Spinbox(dsm_top, from_=2, to=30, textvariable=self.num_tasks_var, width=5).pack(side="left", padx=4)
+        ttk.Button(dsm_top, text="－", width=3, command=self._decrease_tasks).pack(side="left", padx=(4, 1))
+        ttk.Button(dsm_top, text="＋", width=3, command=self._increase_tasks).pack(side="left", padx=(1, 6))
+        ttk.Button(dsm_top, text="表を再作成", command=self._rebuild_tables).pack(side="left", padx=6)
+
+        self.dsm_input_frame = ttk.Labelframe(self.tab_dsm_input, text="DSM 入力 (0〜1)", padding=6)
+        self.dsm_input_frame.pack(fill="both", expand=True, padx=8, pady=(0, 8))
+
+        self.dsm_visual_frame = ttk.Labelframe(self.tab_dsm_visual, text="DSM可視化パネル", padding=6)
+        self.dsm_visual_frame.pack(fill="both", expand=True, padx=8, pady=8)
 
     def _clear_frame(self, frame: ttk.Frame) -> None:
         for w in frame.winfo_children():
@@ -442,7 +455,8 @@ class SimulatorGUI:
         self.col_header_labels = []
         self.row_header_labels = []
         self._clear_frame(self.tasks_frame)
-        self._clear_frame(self.dsm_frame)
+        self._clear_frame(self.dsm_input_frame)
+        self._clear_frame(self.dsm_visual_frame)
 
         headers = ["task_name", "base_cost", "base_duration", "cost_stddev", "duration_stddev"]
         for c, h in enumerate(headers):
@@ -460,17 +474,9 @@ class SimulatorGUI:
                 row_entries[key] = e
             self.task_entries.append(row_entries)
 
-        dsm_pane = ttk.PanedWindow(self.dsm_frame, orient="vertical")
-        dsm_pane.pack(fill="both", expand=True)
-
-        input_frame = ttk.Frame(dsm_pane)
-        viz_outer = ttk.Labelframe(dsm_pane, text="DSM可視化")
-        dsm_pane.add(input_frame, weight=3)
-        dsm_pane.add(viz_outer, weight=2)
-
-        canvas = tk.Canvas(input_frame, borderwidth=0)
-        vscroll = ttk.Scrollbar(input_frame, orient="vertical", command=canvas.yview)
-        hscroll = ttk.Scrollbar(input_frame, orient="horizontal", command=canvas.xview)
+        canvas = tk.Canvas(self.dsm_input_frame, borderwidth=0)
+        vscroll = ttk.Scrollbar(self.dsm_input_frame, orient="vertical", command=canvas.yview)
+        hscroll = ttk.Scrollbar(self.dsm_input_frame, orient="horizontal", command=canvas.xview)
         canvas.configure(yscrollcommand=vscroll.set, xscrollcommand=hscroll.set)
         vscroll.pack(side="right", fill="y")
         hscroll.pack(side="bottom", fill="x")
@@ -506,11 +512,13 @@ class SimulatorGUI:
                 row.append(e)
             self.dsm_entries.append(row)
 
-        viz_tools = ttk.Frame(viz_outer)
+        ttk.Label(self.dsm_visual_frame, text="DSM可視化パネル", font=("TkDefaultFont", 12, "bold")).pack(anchor="w", padx=6, pady=(4, 2))
+
+        viz_tools = ttk.Frame(self.dsm_visual_frame)
         viz_tools.pack(fill="x")
         ttk.Button(viz_tools, text="DSM可視化を更新", command=self._refresh_dsm_visualization).pack(side="left", padx=4, pady=2)
 
-        viz_canvas_frame = ttk.Frame(viz_outer)
+        viz_canvas_frame = ttk.Frame(self.dsm_visual_frame)
         viz_canvas_frame.pack(fill="both", expand=True)
         self.visual_canvas = tk.Canvas(viz_canvas_frame, borderwidth=0, bg="white", height=260)
         vsv = ttk.Scrollbar(viz_canvas_frame, orient="vertical", command=self.visual_canvas.yview)
