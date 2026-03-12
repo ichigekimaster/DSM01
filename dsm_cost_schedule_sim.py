@@ -442,15 +442,13 @@ class SimulatorGUI:
     def _vertical_text(text: str) -> str:
         return "\n".join(list(text)) if text else ""
 
-    def _task_label(self, idx: int) -> str:
-        name = self.task_entries[idx]["task_name"].get().strip() if idx < len(self.task_entries) else ""
-        return f"{idx + 1}:{name}" if name else str(idx + 1)
-
     def _update_column_headers(self) -> None:
         for i, lbl in enumerate(self.col_header_labels):
-            lbl.configure(text=self._vertical_text(self._task_label(i)))
+            name = self.task_entries[i]["task_name"].get().strip() if i < len(self.task_entries) else ""
+            lbl.configure(text=self._vertical_text(name or str(i + 1)))
         for i, lbl in enumerate(self.row_header_labels):
-            lbl.configure(text=self._task_label(i))
+            name = self.task_entries[i]["task_name"].get().strip() if i < len(self.task_entries) else ""
+            lbl.configure(text=name or str(i + 1))
         self._refresh_dsm_visualization()
 
     def _rebuild_tables(self) -> None:
@@ -663,7 +661,8 @@ class SimulatorGUI:
 
         names = []
         for i in range(n):
-            names.append(self._task_label(i))
+            name = self.task_entries[i]["task_name"].get().strip() if i < len(self.task_entries) else ""
+            names.append(name or str(i + 1))
 
         order = self._get_display_order(n)
         self.visual_order = order
