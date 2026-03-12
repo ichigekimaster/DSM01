@@ -376,6 +376,9 @@ class SimulatorGUI:
         self.row_header_labels: List[ttk.Label] = []
         self.visual_canvas: tk.Canvas | None = None
         self.visual_order: List[int] = []
+        self.use_reordered_view = False
+        self.current_index_order: List[int] = []
+        self.reorder_status_var = tk.StringVar(value='現在順序: 1,2,3,...')
 
         self._build_ui()
         self._rebuild_tables()
@@ -454,6 +457,9 @@ class SimulatorGUI:
         self.dsm_entries = []
         self.col_header_labels = []
         self.row_header_labels = []
+        self.use_reordered_view = False
+        self.current_index_order = list(range(n))
+        self.reorder_status_var.set('現在順序: ' + self._format_order_text(self.current_index_order))
         self._clear_frame(self.tasks_frame)
         self._clear_frame(self.dsm_input_frame)
         self._clear_frame(self.dsm_visual_frame)
@@ -517,6 +523,8 @@ class SimulatorGUI:
         viz_tools = ttk.Frame(self.dsm_visual_frame)
         viz_tools.pack(fill="x")
         ttk.Button(viz_tools, text="DSM可視化を更新", command=self._refresh_dsm_visualization).pack(side="left", padx=4, pady=2)
+        ttk.Button(viz_tools, text="DSM並べ替え", command=self._reorder_dsm_visualization).pack(side="left", padx=4, pady=2)
+        ttk.Label(self.dsm_visual_frame, textvariable=self.reorder_status_var, foreground="#333333").pack(anchor="w", padx=6, pady=(2, 4))
 
         viz_canvas_frame = ttk.Frame(self.dsm_visual_frame)
         viz_canvas_frame.pack(fill="both", expand=True)
@@ -532,14 +540,111 @@ class SimulatorGUI:
         self._refresh_dsm_visualization()
 
     def _get_display_order(self, n: int) -> List[int]:
-        """将来の行列並べ替え機能の差し込みポイント。"""
+        if self.use_reordered_view and len(self.visual_order) == n:
+            return self.visual_order
         return list(range(n))
+
+    @staticmethod
+    def _lower_triangular_score(matrix: List[List[float]], order: List[int]) -> float:
+        n = len(order)
+        score = 0.0
+        for r in range(n):
+            src_r = order[r]
+            for c in range(r):
+                src_c = order[c]
+                score += matrix[src_r][src_c]
+        return score
+
+    def _compute_lower_triangular_order(self, matrix: List[List[float]]) -> List[int]:
+        n = len(matrix)
+        stats = []
+        for i in range(n):
+            out_w = sum(matrix[i][j] for j in range(n) if i != j)
+            in_w = sum(matrix[j][i] for j in range(n) if i != j)
+            stats.append((i, in_w - out_w, in_w))
+        stats.sort(key=lambda x: (x[1], x[2]), reverse=True)
+        order = [i for i, _net, _in in stats]
+
+        improved = True
+        while improved:
+            improved = False
+            base_score = SimulatorGUI._lower_triangular_score(matrix, order)
+            for i in range(n - 1):
+                cand = order.copy()
+                cand[i], cand[i + 1] = cand[i + 1], cand[i]
+                cand_score = SimulatorGUI._lower_triangular_score(matrix, cand)
+                if cand_score > base_score + 1e-12:
+                    order = cand
+                    improved = True
+                    break
+        return order
+
+    def _collect_task_rows(self) -> List[dict[str, str]]:
+        keys = ["task_name", "base_cost", "base_duration", "cost_stddev", "duration_stddev"]
+        rows: List[dict[str, str]] = []
+        for row in self.task_entries:
+            rows.append({k: row[k].get() for k in keys})
+        return rows
+
+    def _write_reordered_values(self, order: List[int], task_rows: List[dict[str, str]], matrix: List[List[float]]) -> None:
+        keys = ["task_name", "base_cost", "base_duration", "cost_stddev", "duration_stddev"]
+        n = len(order)
+        new_rows = [task_rows[i] for i in order]
+        new_matrix = [[matrix[order[r]][order[c]] for c in range(n)] for r in range(n)]
+
+        for r in range(n):
+            for k in keys:
+                ent = self.task_entries[r][k]
+                ent.delete(0, tk.END)
+                ent.insert(0, new_rows[r][k])
+
+        for r in range(n):
+            for c in range(n):
+                if r == c:
+                    continue
+                cell = self.dsm_entries[r][c]
+                if not isinstance(cell, ttk.Entry):
+                    continue
+                cell.delete(0, tk.END)
+                v = new_matrix[r][c]
+                if abs(v) > 1e-12:
+                    cell.insert(0, f"{v:g}")
+
+    def _format_order_text(self, order: List[int]) -> str:
+        return ", ".join(str(i + 1) for i in order)
+
+    def _reorder_dsm_visualization(self) -> None:
+        print("DSM reorder pressed")
+        n = len(self.dsm_entries)
+        if n == 0:
+            return
+        try:
+            matrix = self._collect_dsm()
+            task_rows = self._collect_task_rows()
+        except Exception as e:
+            messagebox.showerror("エラー", str(e))
+            return
+
+        old_order = self.current_index_order.copy() if len(self.current_index_order) == n else list(range(n))
+        local_order = self._compute_lower_triangular_order(matrix)
+        self._write_reordered_values(local_order, task_rows, matrix)
+
+        new_order = [old_order[i] for i in local_order]
+        self.current_index_order = new_order
+
+        self.use_reordered_view = False
+        self.visual_order = list(range(n))
+        self.reorder_status_var.set(
+            f"旧順序: {self._format_order_text(old_order)}  →  新順序: {self._format_order_text(new_order)}"
+        )
+        self._update_column_headers()
+        self._refresh_dsm_visualization()
 
     @staticmethod
     def _dsm_cell_fill(src_r: int, src_c: int, value: float) -> str:
         if src_r == src_c:
             return "#e6e6e6"
-        return "#66a3ff" if value > 0 else "#ffffff"
+        return "#2f80ed" if value > 0 else "#ffffff"
 
     def _refresh_dsm_visualization(self) -> None:
         if self.visual_canvas is None:
@@ -562,9 +667,9 @@ class SimulatorGUI:
         order = self._get_display_order(n)
         self.visual_order = order
 
-        cell = 20
-        left_w = 120
-        top_h = 120
+        cell = 22
+        left_w = 180
+        top_h = 90
         w = left_w + cell * n + 20
         h = top_h + cell * n + 20
 
@@ -583,11 +688,13 @@ class SimulatorGUI:
 
         for vr, src_r in enumerate(order):
             y = top_h + vr * cell + cell / 2
-            c.create_text(4, y, text=names[src_r], anchor="w", font=("TkDefaultFont", 9))
+            label = names[src_r] if len(names[src_r]) <= 24 else names[src_r][:21] + "..."
+            c.create_text(6, y, text=label, anchor="w", font=("TkDefaultFont", 9))
 
         for vc, src_c in enumerate(order):
             x = left_w + vc * cell + cell / 2
-            c.create_text(x, top_h - 4, text="\n".join(list(names[src_c])), anchor="s", font=("TkDefaultFont", 8))
+            label = names[src_c] if len(names[src_c]) <= 16 else names[src_c][:13] + "..."
+            c.create_text(x, top_h - 6, text=label, angle=60, anchor="s", font=("TkDefaultFont", 8))
 
         c.create_text(left_w - 4, top_h - 4, text="DSM", anchor="se")
 
