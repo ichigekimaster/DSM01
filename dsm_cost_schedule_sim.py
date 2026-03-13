@@ -15,7 +15,7 @@ from typing import List, Tuple
 
 LAUNCHER_SCRIPT_VERSION = 4
 GUI_LAYOUT_VERSION = "DSM-20x20"
-GUI_WINDOW_TITLE = "DSM Cost/Schedule Simulator + DSM Viewer [HDRFIX-1]"
+GUI_WINDOW_TITLE = "DSM Cost/Schedule Simulator + DSM Viewer"
 
 
 @dataclass
@@ -414,7 +414,6 @@ class SimulatorGUI:
 
         dsm_top = ttk.Frame(self.tab_dsm_input, padding=8)
         dsm_top.pack(fill="x")
-        ttk.Label(dsm_top, text="BUILD: HDRFIX-1", foreground="#666666").pack(side="right")
         ttk.Label(dsm_top, text="行列サイズ").pack(side="left")
         ttk.Spinbox(dsm_top, from_=2, to=30, textvariable=self.num_tasks_var, width=5).pack(side="left", padx=4)
         ttk.Button(dsm_top, text="－", width=3, command=self._decrease_tasks).pack(side="left", padx=(4, 1))
@@ -439,24 +438,17 @@ class SimulatorGUI:
         self.num_tasks_var.set(max(int(self.num_tasks_var.get()) - 1, 2))
         self._rebuild_tables()
 
-    def _task_label(self, idx: int) -> str:
-        task_name = self.task_entries[idx]["task_name"].get().strip() if idx < len(self.task_entries) else ""
-        if task_name:
-            return f"{idx + 1}:{task_name}"
-        return str(idx + 1)
-
-    def _all_task_labels(self) -> List[str]:
-        return [self._task_label(i) for i in range(len(self.task_entries))]
-
-    def _refresh_header_labels(self) -> None:
-        labels = self._all_task_labels()
-        for i, lbl in enumerate(self.col_header_labels):
-            lbl.configure(text=labels[i] if i < len(labels) else str(i + 1))
-        for i, lbl in enumerate(self.row_header_labels):
-            lbl.configure(text=labels[i] if i < len(labels) else str(i + 1))
+    @staticmethod
+    def _vertical_text(text: str) -> str:
+        return "\n".join(list(text)) if text else ""
 
     def _update_column_headers(self) -> None:
-        self._refresh_header_labels()
+        for i, lbl in enumerate(self.col_header_labels):
+            name = self.task_entries[i]["task_name"].get().strip() if i < len(self.task_entries) else ""
+            lbl.configure(text=self._vertical_text(name or str(i + 1)))
+        for i, lbl in enumerate(self.row_header_labels):
+            name = self.task_entries[i]["task_name"].get().strip() if i < len(self.task_entries) else ""
+            lbl.configure(text=name or str(i + 1))
         self._refresh_dsm_visualization()
 
     def _rebuild_tables(self) -> None:
@@ -504,16 +496,13 @@ class SimulatorGUI:
         )
 
         ttk.Label(grid, text="DSM", width=10).grid(row=0, column=0, padx=1, pady=1)
-        labels = self._all_task_labels()
         for c in range(n):
-            text = labels[c] if c < len(labels) else str(c + 1)
-            lbl = ttk.Label(grid, text=text, width=8, anchor="center")
+            lbl = ttk.Label(grid, text=self._vertical_text(str(c + 1)), width=4, anchor="center")
             lbl.grid(row=0, column=c + 1, padx=1, pady=1)
             self.col_header_labels.append(lbl)
 
         for r in range(n):
-            text = labels[r] if r < len(labels) else str(r + 1)
-            row_name = ttk.Label(grid, text=text, width=14, anchor="w")
+            row_name = ttk.Label(grid, text=str(r + 1), width=14, anchor="w")
             row_name.grid(row=r + 1, column=0, padx=1, pady=1, sticky="w")
             self.row_header_labels.append(row_name)
             row: List[tk.Widget] = []
@@ -625,6 +614,7 @@ class SimulatorGUI:
         return ", ".join(str(i + 1) for i in order)
 
     def _reorder_dsm_visualization(self) -> None:
+        print("DSM reorder pressed")
         n = len(self.dsm_entries)
         if n == 0:
             return
@@ -669,7 +659,10 @@ class SimulatorGUI:
         except Exception:
             matrix = [[0.0 for _ in range(n)] for _ in range(n)]
 
-        names = self._all_task_labels()
+        names = []
+        for i in range(n):
+            name = self.task_entries[i]["task_name"].get().strip() if i < len(self.task_entries) else ""
+            names.append(name or str(i + 1))
 
         order = self._get_display_order(n)
         self.visual_order = order
