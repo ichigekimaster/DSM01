@@ -15,7 +15,7 @@ from typing import List, Tuple
 
 LAUNCHER_SCRIPT_VERSION = 4
 GUI_LAYOUT_VERSION = "DSM-20x20"
-GUI_WINDOW_TITLE = "DSM Cost/Schedule Simulator + DSM Viewer"
+GUI_WINDOW_TITLE = "DSM Cost/Schedule Simulator + DSM Viewer [HDRFIX-1]"
 
 
 @dataclass
