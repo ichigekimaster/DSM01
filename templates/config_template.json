@@ -1,0 +1,5 @@
+{
+  "num_trials": 1000,
+  "max_iterations": 50,
+  "random_seed": 42
+}
