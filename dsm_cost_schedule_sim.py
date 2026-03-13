@@ -442,17 +442,13 @@ class SimulatorGUI:
     def _vertical_text(text: str) -> str:
         return "\n".join(list(text)) if text else ""
 
-    def _task_label(self, idx: int) -> str:
-        task_name = self.task_entries[idx]["task_name"].get().strip() if idx < len(self.task_entries) else ""
-        if task_name:
-            return f"{idx + 1}:{task_name}"
-        return str(idx + 1)
-
     def _update_column_headers(self) -> None:
         for i, lbl in enumerate(self.col_header_labels):
-            lbl.configure(text=self._vertical_text(self._task_label(i)))
+            name = self.task_entries[i]["task_name"].get().strip() if i < len(self.task_entries) else ""
+            lbl.configure(text=self._vertical_text(name or str(i + 1)))
         for i, lbl in enumerate(self.row_header_labels):
-            lbl.configure(text=self._task_label(i))
+            name = self.task_entries[i]["task_name"].get().strip() if i < len(self.task_entries) else ""
+            lbl.configure(text=name or str(i + 1))
         self._refresh_dsm_visualization()
 
     def _rebuild_tables(self) -> None:
@@ -501,12 +497,12 @@ class SimulatorGUI:
 
         ttk.Label(grid, text="DSM", width=10).grid(row=0, column=0, padx=1, pady=1)
         for c in range(n):
-            lbl = ttk.Label(grid, text=self._vertical_text(self._task_label(c)), width=4, anchor="center")
+            lbl = ttk.Label(grid, text=self._vertical_text(str(c + 1)), width=4, anchor="center")
             lbl.grid(row=0, column=c + 1, padx=1, pady=1)
             self.col_header_labels.append(lbl)
 
         for r in range(n):
-            row_name = ttk.Label(grid, text=self._task_label(r), width=14, anchor="w")
+            row_name = ttk.Label(grid, text=str(r + 1), width=14, anchor="w")
             row_name.grid(row=r + 1, column=0, padx=1, pady=1, sticky="w")
             self.row_header_labels.append(row_name)
             row: List[tk.Widget] = []
@@ -665,7 +661,8 @@ class SimulatorGUI:
 
         names = []
         for i in range(n):
-            names.append(self._task_label(i))
+            name = self.task_entries[i]["task_name"].get().strip() if i < len(self.task_entries) else ""
+            names.append(name or str(i + 1))
 
         order = self._get_display_order(n)
         self.visual_order = order
