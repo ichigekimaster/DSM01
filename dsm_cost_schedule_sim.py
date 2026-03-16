@@ -16,10 +16,6 @@ from typing import List, Tuple
 LAUNCHER_SCRIPT_VERSION = 4
 GUI_LAYOUT_VERSION = "DSM-20x20"
 GUI_WINDOW_TITLE = "DSM Cost/Schedule Simulator + DSM Viewer [HDRFIX-1]"
-DEFAULT_BUDGET_THRESHOLD: float | None = None
-DEFAULT_DEADLINE_THRESHOLD: float | None = None
-DENSITY_BINS_X = 30
-DENSITY_BINS_Y = 30
 
 
 @dataclass
@@ -228,158 +224,6 @@ def save_scatter_svg(results: List[Tuple[float, float]], out_svg: Path) -> None:
     out_svg.write_text(svg, encoding="utf-8")
 
 
-def _resolve_threshold(explicit: float | None, values: List[float]) -> float:
-    if explicit is not None:
-        return float(explicit)
-    sorted_values = sorted(values)
-    mid = len(sorted_values) // 2
-    if len(sorted_values) % 2:
-        return sorted_values[mid]
-    return 0.5 * (sorted_values[mid - 1] + sorted_values[mid])
-
-
-def summarize_threshold_rates(
-    results: List[Tuple[float, float]],
-    budget_threshold: float,
-    deadline_threshold: float,
-) -> dict[str, float]:
-    total = len(results)
-    if total == 0:
-        return {
-            "budget_overrun_rate": 0.0,
-            "deadline_miss_rate": 0.0,
-            "both_within_rate": 0.0,
-        }
-
-    budget_over = sum(1 for c, _d in results if c > budget_threshold)
-    deadline_miss = sum(1 for _c, d in results if d > deadline_threshold)
-    both_within = sum(
-        1
-        for c, d in results
-        if c <= budget_threshold and d <= deadline_threshold
-    )
-    return {
-        "budget_overrun_rate": budget_over / total,
-        "deadline_miss_rate": deadline_miss / total,
-        "both_within_rate": both_within / total,
-    }
-
-
-def save_density_svg(
-    results: List[Tuple[float, float]],
-    out_svg: Path,
-    budget_threshold: float | None = None,
-    deadline_threshold: float | None = None,
-) -> tuple[float, float, dict[str, float]]:
-    if not results:
-        raise ValueError("結果が空のため密度図を作成できません。")
-
-    width, height = 920, 680
-    margin_l, margin_r, margin_t, margin_b = 100, 60, 56, 86
-    plot_w = width - margin_l - margin_r
-    plot_h = height - margin_t - margin_b
-
-    xs = [p[0] for p in results]
-    ys = [p[1] for p in results]
-    min_x, max_x = min(xs), max(xs)
-    min_y, max_y = min(ys), max(ys)
-
-    if min_x == max_x:
-        max_x += 1.0
-    if min_y == max_y:
-        max_y += 1.0
-
-    resolved_budget = _resolve_threshold(budget_threshold, xs)
-    resolved_deadline = _resolve_threshold(deadline_threshold, ys)
-
-    bins_x = DENSITY_BINS_X
-    bins_y = DENSITY_BINS_Y
-    x_span = max_x - min_x
-    y_span = max_y - min_y
-    x_bin_w = x_span / bins_x
-    y_bin_h = y_span / bins_y
-
-    counts = [[0 for _ in range(bins_x)] for _ in range(bins_y)]
-    for x, y in results:
-        bx = min(bins_x - 1, max(0, int((x - min_x) / x_span * bins_x)))
-        by = min(bins_y - 1, max(0, int((y - min_y) / y_span * bins_y)))
-        counts[by][bx] += 1
-
-    non_zero = [v for row in counts for v in row if v > 0]
-    if non_zero:
-        sorted_non_zero = sorted(non_zero)
-
-        def q(p: float) -> int:
-            idx = int(p * (len(sorted_non_zero) - 1))
-            return sorted_non_zero[idx]
-
-        q20, q40, q60, q80 = q(0.2), q(0.4), q(0.6), q(0.8)
-    else:
-        q20 = q40 = q60 = q80 = 0
-
-    def level_color(v: int) -> str:
-        if v == 0:
-            return "#ffffff"
-        if v <= q20:
-            return "#d6e9ff"
-        if v <= q40:
-            return "#a8d0ff"
-        if v <= q60:
-            return "#77b5ff"
-        if v <= q80:
-            return "#3b8cff"
-        return "#0d5ed7"
-
-    def x_to_px(x: float) -> float:
-        return margin_l + (x - min_x) / x_span * plot_w
-
-    def y_to_px(y: float) -> float:
-        return margin_t + plot_h - (y - min_y) / y_span * plot_h
-
-    rects = []
-    for by in range(bins_y):
-        y0_val = min_y + by * y_bin_h
-        y1_val = min_y + (by + 1) * y_bin_h
-        y_top = y_to_px(y1_val)
-        y_bottom = y_to_px(y0_val)
-        for bx in range(bins_x):
-            x0_val = min_x + bx * x_bin_w
-            x1_val = min_x + (bx + 1) * x_bin_w
-            x_left = x_to_px(x0_val)
-            x_right = x_to_px(x1_val)
-            color = level_color(counts[by][bx])
-            rects.append(
-                f'<rect x="{x_left:.2f}" y="{y_top:.2f}" width="{(x_right-x_left):.2f}" '
-                f'height="{(y_bottom-y_top):.2f}" fill="{color}" stroke="none" />'
-            )
-
-    budget_x = x_to_px(resolved_budget)
-    deadline_y = y_to_px(resolved_deadline)
-    rates = summarize_threshold_rates(results, resolved_budget, resolved_deadline)
-
-    svg = f"""<?xml version=\"1.0\" encoding=\"UTF-8\"?>
-<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"{width}\" height=\"{height}\">
-  <rect x=\"0\" y=\"0\" width=\"{width}\" height=\"{height}\" fill=\"white\" />
-  <text x=\"{width/2:.0f}\" y=\"28\" text-anchor=\"middle\" font-size=\"20\" font-family=\"sans-serif\">DSMシミュレーション結果のコスト・期間分布</text>
-  <g>{''.join(rects)}</g>
-  <line x1=\"{margin_l}\" y1=\"{margin_t + plot_h}\" x2=\"{margin_l + plot_w}\" y2=\"{margin_t + plot_h}\" stroke=\"#333\" stroke-width=\"2\" />
-  <line x1=\"{margin_l}\" y1=\"{margin_t}\" x2=\"{margin_l}\" y2=\"{margin_t + plot_h}\" stroke=\"#333\" stroke-width=\"2\" />
-  <line x1=\"{budget_x:.2f}\" y1=\"{margin_t}\" x2=\"{budget_x:.2f}\" y2=\"{margin_t + plot_h}\" stroke=\"#c62828\" stroke-width=\"2\" stroke-dasharray=\"8,6\" />
-  <line x1=\"{margin_l}\" y1=\"{deadline_y:.2f}\" x2=\"{margin_l + plot_w}\" y2=\"{deadline_y:.2f}\" stroke=\"#2e7d32\" stroke-width=\"2\" stroke-dasharray=\"8,6\" />
-  <text x=\"{budget_x + 6:.2f}\" y=\"{margin_t + 16}\" fill=\"#c62828\" font-size=\"13\" font-family=\"sans-serif\">予算</text>
-  <text x=\"{margin_l + 6}\" y=\"{deadline_y - 6:.2f}\" fill=\"#2e7d32\" font-size=\"13\" font-family=\"sans-serif\">期日</text>
-  <text x=\"{margin_l + plot_w/2:.0f}\" y=\"{height - 24}\" text-anchor=\"middle\" font-size=\"16\" font-family=\"sans-serif\">総コスト</text>
-  <text x=\"28\" y=\"{margin_t + plot_h/2:.0f}\" text-anchor=\"middle\" transform=\"rotate(-90 28 {margin_t + plot_h/2:.0f})\" font-size=\"16\" font-family=\"sans-serif\">総期間</text>
-  <text x=\"{margin_l}\" y=\"{margin_t + plot_h + 24}\" font-size=\"12\" font-family=\"sans-serif\">{min_x:.2f}</text>
-  <text x=\"{margin_l + plot_w}\" y=\"{margin_t + plot_h + 24}\" text-anchor=\"end\" font-size=\"12\" font-family=\"sans-serif\">{max_x:.2f}</text>
-  <text x=\"{margin_l - 8}\" y=\"{margin_t + plot_h}\" text-anchor=\"end\" font-size=\"12\" font-family=\"sans-serif\">{min_y:.2f}</text>
-  <text x=\"{margin_l - 8}\" y=\"{margin_t + 4}\" text-anchor=\"end\" font-size=\"12\" font-family=\"sans-serif\">{max_y:.2f}</text>
-</svg>
-"""
-    out_svg.write_text(svg, encoding="utf-8")
-    return resolved_budget, resolved_deadline, rates
-
-
 def create_templates(out_dir: Path, num_tasks: int = 5) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -419,7 +263,7 @@ def create_windows_launcher(desktop_dir: Path, project_dir: Path) -> Path:
 setlocal
 REM DSM_LAUNCHER_VERSION=5
 set "DIR={escaped_project_dir}"
-if not exist "%DIR%\dsm_cost_schedule_sim.py" (
+if not exist "%DIR%\\dsm_cost_schedule_sim.py" (
   echo dsm_cost_schedule_sim.py not found in: %DIR%
   pause
   exit /b 1
@@ -441,7 +285,7 @@ if %errorlevel%==0 (
 )
 if errorlevel 1 (
   echo.
-  echo Launch failed. Run in PowerShell: python "%DIR%\dsm_cost_schedule_sim.py" --gui
+  echo Launch failed. Run in PowerShell: python "%DIR%\\dsm_cost_schedule_sim.py" --gui
   pause
 )
 endlocal
@@ -525,6 +369,7 @@ class SimulatorGUI:
         self.num_trials_var = tk.IntVar(value=1000)
         self.max_iter_var = tk.IntVar(value=50)
         self.seed_var = tk.IntVar(value=42)
+        self.matrix_size_info_var = tk.StringVar(value="行列サイズ n=20")
 
         self.task_entries: List[dict[str, tk.Entry]] = []
         self.dsm_entries: List[List[tk.Widget]] = []
@@ -560,7 +405,7 @@ class SimulatorGUI:
         notebook.add(self.tab_process_dsm, text="プロセスDSM")
         notebook.add(self.tab_rework_prob_dsm, text="やり直し確率DSM")
         notebook.add(self.tab_rework_impact_dsm, text="やり直し業務量DSM")
-        notebook.add(self.tab_ic_table, text="期間・コスト・改善曲線(IC)表")
+        notebook.add(self.tab_ic_table, text="期間・コスト・改善曲線(IC)")
         notebook.add(self.tab_dsm_visual, text="DSM可視化")
 
         cfg = ttk.Frame(self.tab_cost, padding=8)
@@ -593,14 +438,26 @@ class SimulatorGUI:
         self.dsm_input_frame = ttk.Labelframe(self.tab_process_dsm, text="プロセスDSM 入力", padding=6)
         self.dsm_input_frame.pack(fill="both", expand=True, padx=8, pady=(0, 8))
 
+        prob_top = ttk.Frame(self.tab_rework_prob_dsm, padding=8)
+        prob_top.pack(fill="x")
+        ttk.Label(prob_top, text="プロセスDSMと同じ並びで、やり直し確率(0〜1)を入力", foreground="#444444").pack(side="left")
+        ttk.Label(prob_top, textvariable=self.matrix_size_info_var, foreground="#666666").pack(side="right")
         self.rework_prob_frame = ttk.Labelframe(self.tab_rework_prob_dsm, text="やり直し確率DSM (0〜1)", padding=6)
-        self.rework_prob_frame.pack(fill="both", expand=True, padx=8, pady=8)
+        self.rework_prob_frame.pack(fill="both", expand=True, padx=8, pady=(0, 8))
 
+        impact_top = ttk.Frame(self.tab_rework_impact_dsm, padding=8)
+        impact_top.pack(fill="x")
+        ttk.Label(impact_top, text="プロセスDSMと同じ並びで、やり直し時の追加業務量を入力", foreground="#444444").pack(side="left")
+        ttk.Label(impact_top, textvariable=self.matrix_size_info_var, foreground="#666666").pack(side="right")
         self.rework_impact_frame = ttk.Labelframe(self.tab_rework_impact_dsm, text="やり直し業務量DSM", padding=6)
-        self.rework_impact_frame.pack(fill="both", expand=True, padx=8, pady=8)
+        self.rework_impact_frame.pack(fill="both", expand=True, padx=8, pady=(0, 8))
 
+        ic_top = ttk.Frame(self.tab_ic_table, padding=8)
+        ic_top.pack(fill="x")
+        ttk.Label(ic_top, text="各アクティビティの期間・コスト・改善曲線(IC)を入力", foreground="#444444").pack(side="left")
+        ttk.Label(ic_top, textvariable=self.matrix_size_info_var, foreground="#666666").pack(side="right")
         self.ic_table_frame = ttk.Labelframe(self.tab_ic_table, text="期間・コスト・改善曲線(IC)表", padding=6)
-        self.ic_table_frame.pack(fill="both", expand=True, padx=8, pady=8)
+        self.ic_table_frame.pack(fill="both", expand=True, padx=8, pady=(0, 8))
 
         self.dsm_visual_frame = ttk.Labelframe(self.tab_dsm_visual, text="DSM可視化パネル", padding=6)
         self.dsm_visual_frame.pack(fill="both", expand=True, padx=8, pady=8)
@@ -734,6 +591,7 @@ class SimulatorGUI:
 
     def _rebuild_tables(self) -> None:
         n = int(self.num_tasks_var.get())
+        self.matrix_size_info_var.set(f"行列サイズ n={n}")
         self.task_entries = []
         self.dsm_entries = []
         self.rework_prob_entries = []
@@ -1109,23 +967,9 @@ class SimulatorGUI:
             results = run_simulation(taskset, dsm, cfg)
             save_results_csv(results, out_dir / "simulation_results.csv")
             save_scatter_svg(results, out_dir / "cost_duration_scatter.svg")
-            budget, deadline, rates = save_density_svg(
-                results,
-                out_dir / "cost_duration_density.svg",
-                DEFAULT_BUDGET_THRESHOLD,
-                DEFAULT_DEADLINE_THRESHOLD,
-            )
             messagebox.showinfo(
                 "シミュレーション完了",
-                (
-                    f"試行数: {len(results)}\n"
-                    f"保存先: {out_dir}\n"
-                    f"出力: simulation_results.csv / cost_duration_scatter.svg / cost_duration_density.svg\n"
-                    f"予算閾値: {budget:.2f}, 期日閾値: {deadline:.2f}\n"
-                    f"予算超過率: {rates['budget_overrun_rate'] * 100:.1f}%\n"
-                    f"期日遅延率: {rates['deadline_miss_rate'] * 100:.1f}%\n"
-                    f"両方達成率: {rates['both_within_rate'] * 100:.1f}%"
-                ),
+                f"試行数: {len(results)}\n保存先: {out_dir}\n出力: simulation_results.csv / cost_duration_scatter.svg",
             )
         except Exception as e:
             messagebox.showerror("エラー", str(e))
@@ -1138,9 +982,6 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--config", type=Path, default=Path("config.json"), help="config JSON")
     p.add_argument("--out-csv", type=Path, default=Path("simulation_results.csv"))
     p.add_argument("--out-svg", type=Path, default=Path("cost_duration_scatter.svg"))
-    p.add_argument("--out-density-svg", type=Path, default=Path("cost_duration_density.svg"))
-    p.add_argument("--budget-threshold", type=float, default=DEFAULT_BUDGET_THRESHOLD)
-    p.add_argument("--deadline-threshold", type=float, default=DEFAULT_DEADLINE_THRESHOLD)
     p.add_argument("--create-templates", action="store_true")
     p.add_argument("--template-dir", type=Path, default=Path("templates"))
     p.add_argument("--template-tasks", type=int, default=5)
@@ -1197,22 +1038,10 @@ def main() -> None:
     results = run_simulation(tasks, dsm, cfg)
     save_results_csv(results, args.out_csv)
     save_scatter_svg(results, args.out_svg)
-    budget, deadline, rates = save_density_svg(
-        results,
-        args.out_density_svg,
-        args.budget_threshold,
-        args.deadline_threshold,
-    )
 
     print(f"シミュレーション完了: {len(results)} 試行")
     print(f"CSV: {args.out_csv}")
     print(f"散布図(SVG): {args.out_svg}")
-    print(f"密度図(SVG): {args.out_density_svg}")
-    print(f"予算閾値: {budget:.2f}")
-    print(f"期日閾値: {deadline:.2f}")
-    print(f"予算超過率: {rates['budget_overrun_rate'] * 100:.1f}%")
-    print(f"期日遅延率: {rates['deadline_miss_rate'] * 100:.1f}%")
-    print(f"両方達成率: {rates['both_within_rate'] * 100:.1f}%")
 
 
 if __name__ == "__main__":
