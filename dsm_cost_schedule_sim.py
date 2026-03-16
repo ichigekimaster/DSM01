@@ -263,7 +263,7 @@ def create_windows_launcher(desktop_dir: Path, project_dir: Path) -> Path:
 setlocal
 REM DSM_LAUNCHER_VERSION=5
 set "DIR={escaped_project_dir}"
-if not exist "%DIR%\dsm_cost_schedule_sim.py" (
+if not exist "%DIR%\\dsm_cost_schedule_sim.py" (
   echo dsm_cost_schedule_sim.py not found in: %DIR%
   pause
   exit /b 1
@@ -285,7 +285,7 @@ if %errorlevel%==0 (
 )
 if errorlevel 1 (
   echo.
-  echo Launch failed. Run in PowerShell: python "%DIR%\dsm_cost_schedule_sim.py" --gui
+  echo Launch failed. Run in PowerShell: python "%DIR%\\dsm_cost_schedule_sim.py" --gui
   pause
 )
 endlocal
@@ -369,11 +369,19 @@ class SimulatorGUI:
         self.num_trials_var = tk.IntVar(value=1000)
         self.max_iter_var = tk.IntVar(value=50)
         self.seed_var = tk.IntVar(value=42)
+        self.matrix_size_info_var = tk.StringVar(value="行列サイズ n=20")
 
         self.task_entries: List[dict[str, tk.Entry]] = []
         self.dsm_entries: List[List[tk.Widget]] = []
+        self.rework_prob_entries: List[List[tk.Widget]] = []
+        self.rework_impact_entries: List[List[tk.Widget]] = []
         self.col_header_labels: List[ttk.Label] = []
         self.row_header_labels: List[ttk.Label] = []
+        self.rework_prob_col_header_labels: List[ttk.Label] = []
+        self.rework_prob_row_header_labels: List[ttk.Label] = []
+        self.rework_impact_col_header_labels: List[ttk.Label] = []
+        self.rework_impact_row_header_labels: List[ttk.Label] = []
+        self.ic_label_labels: List[ttk.Label] = []
         self.visual_canvas: tk.Canvas | None = None
         self.visual_order: List[int] = []
         self.use_reordered_view = False
@@ -388,10 +396,16 @@ class SimulatorGUI:
         notebook.pack(fill="both", expand=True, padx=8, pady=8)
 
         self.tab_cost = ttk.Frame(notebook)
-        self.tab_dsm_input = ttk.Frame(notebook)
+        self.tab_process_dsm = ttk.Frame(notebook)
+        self.tab_rework_prob_dsm = ttk.Frame(notebook)
+        self.tab_rework_impact_dsm = ttk.Frame(notebook)
+        self.tab_ic_table = ttk.Frame(notebook)
         self.tab_dsm_visual = ttk.Frame(notebook)
         notebook.add(self.tab_cost, text="コスト・スケジュール")
-        notebook.add(self.tab_dsm_input, text="DSM入力")
+        notebook.add(self.tab_process_dsm, text="プロセスDSM")
+        notebook.add(self.tab_rework_prob_dsm, text="やり直し確率DSM")
+        notebook.add(self.tab_rework_impact_dsm, text="やり直し業務量DSM")
+        notebook.add(self.tab_ic_table, text="期間・コスト・改善曲線(IC)")
         notebook.add(self.tab_dsm_visual, text="DSM可視化")
 
         cfg = ttk.Frame(self.tab_cost, padding=8)
@@ -412,16 +426,38 @@ class SimulatorGUI:
         ttk.Button(cost_bottom, text="CSV読込", command=self.load_inputs).pack(side="left", padx=6)
         ttk.Button(cost_bottom, text="シミュレーション実行", command=self.run).pack(side="right")
 
-        dsm_top = ttk.Frame(self.tab_dsm_input, padding=8)
+        dsm_top = ttk.Frame(self.tab_process_dsm, padding=8)
         dsm_top.pack(fill="x")
+        ttk.Label(dsm_top, text="BUILD: HDRFIX-1", foreground="#666666").pack(side="right")
         ttk.Label(dsm_top, text="行列サイズ").pack(side="left")
         ttk.Spinbox(dsm_top, from_=2, to=30, textvariable=self.num_tasks_var, width=5).pack(side="left", padx=4)
         ttk.Button(dsm_top, text="－", width=3, command=self._decrease_tasks).pack(side="left", padx=(4, 1))
         ttk.Button(dsm_top, text="＋", width=3, command=self._increase_tasks).pack(side="left", padx=(1, 6))
         ttk.Button(dsm_top, text="表を再作成", command=self._rebuild_tables).pack(side="left", padx=6)
 
-        self.dsm_input_frame = ttk.Labelframe(self.tab_dsm_input, text="DSM 入力 (0〜1)", padding=6)
+        self.dsm_input_frame = ttk.Labelframe(self.tab_process_dsm, text="プロセスDSM 入力", padding=6)
         self.dsm_input_frame.pack(fill="both", expand=True, padx=8, pady=(0, 8))
+
+        prob_top = ttk.Frame(self.tab_rework_prob_dsm, padding=8)
+        prob_top.pack(fill="x")
+        ttk.Label(prob_top, text="プロセスDSMと同じ並びで、やり直し確率(0〜1)を入力", foreground="#444444").pack(side="left")
+        ttk.Label(prob_top, textvariable=self.matrix_size_info_var, foreground="#666666").pack(side="right")
+        self.rework_prob_frame = ttk.Labelframe(self.tab_rework_prob_dsm, text="やり直し確率DSM (0〜1)", padding=6)
+        self.rework_prob_frame.pack(fill="both", expand=True, padx=8, pady=(0, 8))
+
+        impact_top = ttk.Frame(self.tab_rework_impact_dsm, padding=8)
+        impact_top.pack(fill="x")
+        ttk.Label(impact_top, text="プロセスDSMと同じ並びで、やり直し時の追加業務量を入力", foreground="#444444").pack(side="left")
+        ttk.Label(impact_top, textvariable=self.matrix_size_info_var, foreground="#666666").pack(side="right")
+        self.rework_impact_frame = ttk.Labelframe(self.tab_rework_impact_dsm, text="やり直し業務量DSM", padding=6)
+        self.rework_impact_frame.pack(fill="both", expand=True, padx=8, pady=(0, 8))
+
+        ic_top = ttk.Frame(self.tab_ic_table, padding=8)
+        ic_top.pack(fill="x")
+        ttk.Label(ic_top, text="各アクティビティの期間・コスト・改善曲線(IC)を入力", foreground="#444444").pack(side="left")
+        ttk.Label(ic_top, textvariable=self.matrix_size_info_var, foreground="#666666").pack(side="right")
+        self.ic_table_frame = ttk.Labelframe(self.tab_ic_table, text="期間・コスト・改善曲線(IC)表", padding=6)
+        self.ic_table_frame.pack(fill="both", expand=True, padx=8, pady=(0, 8))
 
         self.dsm_visual_frame = ttk.Labelframe(self.tab_dsm_visual, text="DSM可視化パネル", padding=6)
         self.dsm_visual_frame.pack(fill="both", expand=True, padx=8, pady=8)
@@ -442,26 +478,138 @@ class SimulatorGUI:
     def _vertical_text(text: str) -> str:
         return "\n".join(list(text)) if text else ""
 
-    def _update_column_headers(self) -> None:
+    def _task_label(self, index: int) -> str:
+        name = self.task_entries[index]["task_name"].get().strip() if index < len(self.task_entries) else ""
+        return f"{index + 1}:{name}" if name else str(index + 1)
+
+    def _vertical_task_label(self, index: int) -> str:
+        return self._vertical_text(self._task_label(index))
+
+    def _all_task_labels(self, count: int | None = None) -> List[str]:
+        n = len(self.task_entries) if count is None else count
+        return [self._task_label(i) for i in range(n)]
+
+    def _refresh_header_labels(self) -> None:
+        col_labels = self._all_task_labels(len(self.col_header_labels))
+        row_labels = self._all_task_labels(len(self.row_header_labels))
         for i, lbl in enumerate(self.col_header_labels):
-            name = self.task_entries[i]["task_name"].get().strip() if i < len(self.task_entries) else ""
-            lbl.configure(text=self._vertical_text(name or str(i + 1)))
+            lbl.configure(text=self._vertical_text(col_labels[i]))
         for i, lbl in enumerate(self.row_header_labels):
-            name = self.task_entries[i]["task_name"].get().strip() if i < len(self.task_entries) else ""
-            lbl.configure(text=name or str(i + 1))
+            lbl.configure(text=row_labels[i])
+        prob_col_labels = self._all_task_labels(len(self.rework_prob_col_header_labels))
+        prob_row_labels = self._all_task_labels(len(self.rework_prob_row_header_labels))
+        for i, lbl in enumerate(self.rework_prob_col_header_labels):
+            lbl.configure(text=self._vertical_text(prob_col_labels[i]))
+        for i, lbl in enumerate(self.rework_prob_row_header_labels):
+            lbl.configure(text=prob_row_labels[i])
+        impact_col_labels = self._all_task_labels(len(self.rework_impact_col_header_labels))
+        impact_row_labels = self._all_task_labels(len(self.rework_impact_row_header_labels))
+        for i, lbl in enumerate(self.rework_impact_col_header_labels):
+            lbl.configure(text=self._vertical_text(impact_col_labels[i]))
+        for i, lbl in enumerate(self.rework_impact_row_header_labels):
+            lbl.configure(text=impact_row_labels[i])
+        for i, lbl in enumerate(self.ic_label_labels):
+            lbl.configure(text=self._task_label(i))
+
+    def _update_column_headers(self) -> None:
+        self._refresh_header_labels()
         self._refresh_dsm_visualization()
+
+    def _build_dsm_grid(
+        self,
+        parent: ttk.Frame,
+        n: int,
+        col_headers: List[ttk.Label],
+        row_headers: List[ttk.Label],
+    ) -> List[List[tk.Widget]]:
+        canvas = tk.Canvas(parent, borderwidth=0)
+        vscroll = ttk.Scrollbar(parent, orient="vertical", command=canvas.yview)
+        hscroll = ttk.Scrollbar(parent, orient="horizontal", command=canvas.xview)
+        canvas.configure(yscrollcommand=vscroll.set, xscrollcommand=hscroll.set)
+        vscroll.pack(side="right", fill="y")
+        hscroll.pack(side="bottom", fill="x")
+        canvas.pack(side="left", fill="both", expand=True)
+
+        grid = ttk.Frame(canvas)
+        canvas.create_window((0, 0), window=grid, anchor="nw")
+        grid.bind("<Configure>", lambda _e: canvas.configure(scrollregion=canvas.bbox("all")))
+
+        ttk.Label(grid, text="DSM", width=10).grid(row=0, column=0, padx=1, pady=1)
+        for c in range(n):
+            lbl = ttk.Label(grid, text=self._vertical_task_label(c), width=8, anchor="center")
+            lbl.grid(row=0, column=c + 1, padx=1, pady=1)
+            col_headers.append(lbl)
+
+        entries: List[List[tk.Widget]] = []
+        for r in range(n):
+            row_name = ttk.Label(grid, text=self._task_label(r), width=14, anchor="w")
+            row_name.grid(row=r + 1, column=0, padx=1, pady=1, sticky="w")
+            row_headers.append(row_name)
+            row: List[tk.Widget] = []
+            for c in range(n):
+                if r == c:
+                    cell = tk.Label(grid, text="╲", width=5, bg="#d9d9d9", anchor="center")
+                    cell.grid(row=r + 1, column=c + 1, padx=1, pady=1)
+                    row.append(cell)
+                    continue
+                e = ttk.Entry(grid, width=5)
+                e.grid(row=r + 1, column=c + 1, padx=1, pady=1)
+                e.bind("<KeyRelease>", lambda _evt: self._refresh_dsm_visualization())
+                row.append(e)
+            entries.append(row)
+        return entries
+
+    def _rebuild_ic_table(self, n: int) -> None:
+        self.ic_label_labels = []
+        canvas = tk.Canvas(self.ic_table_frame, borderwidth=0)
+        vscroll = ttk.Scrollbar(self.ic_table_frame, orient="vertical", command=canvas.yview)
+        hscroll = ttk.Scrollbar(self.ic_table_frame, orient="horizontal", command=canvas.xview)
+        canvas.configure(yscrollcommand=vscroll.set, xscrollcommand=hscroll.set)
+        vscroll.pack(side="right", fill="y")
+        hscroll.pack(side="bottom", fill="x")
+        canvas.pack(side="left", fill="both", expand=True)
+
+        grid = ttk.Frame(canvas)
+        canvas.create_window((0, 0), window=grid, anchor="nw")
+        grid.bind("<Configure>", lambda _e: canvas.configure(scrollregion=canvas.bbox("all")))
+
+        headers = [
+            "アクティビティ番号", "ラベル", "期間最小", "期間妥当", "期間最大",
+            "コスト最小", "コスト妥当", "コスト最大", "改善曲線IC",
+        ]
+        for c, h in enumerate(headers):
+            ttk.Label(grid, text=h).grid(row=0, column=c, padx=2, pady=2)
+
+        for r in range(n):
+            ttk.Label(grid, text=str(r + 1), width=10, anchor="center").grid(row=r + 1, column=0, padx=2, pady=1)
+            label_widget = ttk.Label(grid, text=self._task_label(r), width=16, anchor="w")
+            label_widget.grid(row=r + 1, column=1, padx=2, pady=1, sticky="w")
+            self.ic_label_labels.append(label_widget)
+            for c in range(2, len(headers)):
+                e = ttk.Entry(grid, width=10)
+                e.grid(row=r + 1, column=c, padx=2, pady=1)
 
     def _rebuild_tables(self) -> None:
         n = int(self.num_tasks_var.get())
+        self.matrix_size_info_var.set(f"行列サイズ n={n}")
         self.task_entries = []
         self.dsm_entries = []
+        self.rework_prob_entries = []
+        self.rework_impact_entries = []
         self.col_header_labels = []
         self.row_header_labels = []
+        self.rework_prob_col_header_labels = []
+        self.rework_prob_row_header_labels = []
+        self.rework_impact_col_header_labels = []
+        self.rework_impact_row_header_labels = []
         self.use_reordered_view = False
         self.current_index_order = list(range(n))
         self.reorder_status_var.set('現在順序: ' + self._format_order_text(self.current_index_order))
         self._clear_frame(self.tasks_frame)
         self._clear_frame(self.dsm_input_frame)
+        self._clear_frame(self.rework_prob_frame)
+        self._clear_frame(self.rework_impact_frame)
+        self._clear_frame(self.ic_table_frame)
         self._clear_frame(self.dsm_visual_frame)
 
         headers = ["task_name", "base_cost", "base_duration", "cost_stddev", "duration_stddev"]
@@ -480,43 +628,14 @@ class SimulatorGUI:
                 row_entries[key] = e
             self.task_entries.append(row_entries)
 
-        canvas = tk.Canvas(self.dsm_input_frame, borderwidth=0)
-        vscroll = ttk.Scrollbar(self.dsm_input_frame, orient="vertical", command=canvas.yview)
-        hscroll = ttk.Scrollbar(self.dsm_input_frame, orient="horizontal", command=canvas.xview)
-        canvas.configure(yscrollcommand=vscroll.set, xscrollcommand=hscroll.set)
-        vscroll.pack(side="right", fill="y")
-        hscroll.pack(side="bottom", fill="x")
-        canvas.pack(side="left", fill="both", expand=True)
-
-        grid = ttk.Frame(canvas)
-        canvas.create_window((0, 0), window=grid, anchor="nw")
-        grid.bind(
-            "<Configure>",
-            lambda _e: canvas.configure(scrollregion=canvas.bbox("all")),
+        self.dsm_entries = self._build_dsm_grid(self.dsm_input_frame, n, self.col_header_labels, self.row_header_labels)
+        self.rework_prob_entries = self._build_dsm_grid(
+            self.rework_prob_frame, n, self.rework_prob_col_header_labels, self.rework_prob_row_header_labels
         )
-
-        ttk.Label(grid, text="DSM", width=10).grid(row=0, column=0, padx=1, pady=1)
-        for c in range(n):
-            lbl = ttk.Label(grid, text=self._vertical_text(str(c + 1)), width=4, anchor="center")
-            lbl.grid(row=0, column=c + 1, padx=1, pady=1)
-            self.col_header_labels.append(lbl)
-
-        for r in range(n):
-            row_name = ttk.Label(grid, text=str(r + 1), width=14, anchor="w")
-            row_name.grid(row=r + 1, column=0, padx=1, pady=1, sticky="w")
-            self.row_header_labels.append(row_name)
-            row: List[tk.Widget] = []
-            for c in range(n):
-                if r == c:
-                    cell = tk.Label(grid, text="╲", width=5, bg="#d9d9d9", anchor="center")
-                    cell.grid(row=r + 1, column=c + 1, padx=1, pady=1)
-                    row.append(cell)
-                    continue
-                e = ttk.Entry(grid, width=5)
-                e.grid(row=r + 1, column=c + 1, padx=1, pady=1)
-                e.bind("<KeyRelease>", lambda _evt: self._refresh_dsm_visualization())
-                row.append(e)
-            self.dsm_entries.append(row)
+        self.rework_impact_entries = self._build_dsm_grid(
+            self.rework_impact_frame, n, self.rework_impact_col_header_labels, self.rework_impact_row_header_labels
+        )
+        self._rebuild_ic_table(n)
 
         ttk.Label(self.dsm_visual_frame, text="DSM可視化パネル", font=("TkDefaultFont", 12, "bold")).pack(anchor="w", padx=6, pady=(4, 2))
 
@@ -614,7 +733,6 @@ class SimulatorGUI:
         return ", ".join(str(i + 1) for i in order)
 
     def _reorder_dsm_visualization(self) -> None:
-        print("DSM reorder pressed")
         n = len(self.dsm_entries)
         if n == 0:
             return
@@ -659,10 +777,7 @@ class SimulatorGUI:
         except Exception:
             matrix = [[0.0 for _ in range(n)] for _ in range(n)]
 
-        names = []
-        for i in range(n):
-            name = self.task_entries[i]["task_name"].get().strip() if i < len(self.task_entries) else ""
-            names.append(name or str(i + 1))
+        names = self._all_task_labels(n)
 
         order = self._get_display_order(n)
         self.visual_order = order
@@ -731,6 +846,31 @@ class SimulatorGUI:
                 row.append(v)
             out.append(row)
         return out
+
+    @staticmethod
+    def _collect_dsm_grid(entries: List[List[tk.Widget]]) -> List[List[float]]:
+        n = len(entries)
+        out: List[List[float]] = []
+        for r in range(n):
+            row: List[float] = []
+            for c in range(n):
+                if r == c:
+                    row.append(0.0)
+                    continue
+                cell = entries[r][c]
+                if not isinstance(cell, ttk.Entry):
+                    row.append(0.0)
+                    continue
+                raw = cell.get().strip()
+                row.append(0.0 if raw == "" else float(raw))
+            out.append(row)
+        return out
+
+    def _collect_rework_probability_dsm(self) -> List[List[float]]:
+        return self._collect_dsm_grid(self.rework_prob_entries)
+
+    def _collect_rework_impact_dsm(self) -> List[List[float]]:
+        return self._collect_dsm_grid(self.rework_impact_entries)
 
     def save_inputs(self) -> None:
         try:
